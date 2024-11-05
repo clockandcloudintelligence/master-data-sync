@@ -15,7 +15,16 @@ COMMODITIES_API_KEY = os.getenv("COMMODITIES_API_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def fetch_raw_materials_symbols():
-    """Fetch symbols from the raw_materials table in Supabase."""
+    """
+    Fetch symbols from the raw_materials table in Supabase.
+
+    Returns:
+        list: A list of dictionaries containing 'uuid' and 'symbol' for each raw material.
+
+    Attributes:
+        response (dict): The response object from the Supabase query.:no-index:
+        data_list (list): A list of dictionaries containing the 'uuid' and 'symbol' of raw materials.:no-index:
+    """
     response = supabase.table("raw_materials").select("uuid, symbol").execute()
     
     # Check if data is available
@@ -34,7 +43,23 @@ def fetch_raw_materials_symbols():
 
 
 def fetch_prices_from_api(symbols, start_date, end_date):
-    """Fetch historical prices from the Commodities API for a list of symbols."""
+    """
+    Fetch historical prices from the Commodities API for a list of symbols.
+
+    Args:
+        symbols (list): A list of symbols to fetch prices for.
+        start_date (str): The start date for the price data in 'YYYY-MM-DD' format.
+        end_date (str): The end date for the price data in 'YYYY-MM-DD' format.
+
+    Returns:
+        dict: A dictionary containing historical price data indexed by date.
+
+    Attributes:
+        url (str): The endpoint for fetching time series data from the Commodities API.:no-index:
+        params (dict): The parameters for the API request.:no-index:
+        response (Response): The response object from the API request.:no-index:
+        data (dict): The parsed JSON data from the API response.:no-index:
+    """
     url = os.getenv("TIME_SERIES_COMMODITIES_API_END_POINT")  
     params = {
         "access_key": COMMODITIES_API_KEY,
@@ -51,7 +76,17 @@ def fetch_prices_from_api(symbols, start_date, end_date):
     return data.get("data", {}).get("rates", {})
 
 def store_prices(raw_material_id, date, price):
-    """Store price data in raw_material_prices table in Supabase."""
+    """
+    Store price data in raw_material_prices table in Supabase.
+
+    Args:
+        raw_material_id (UUID): The unique identifier of the raw material.
+        date (str): The date for which the price is recorded.
+        price (float): The price of the raw material on the given date.
+
+    Attributes:
+        response (dict): The response object from the Supabase insert operation.:no-index:
+    """
     supabase.table("raw_material_prices").insert({
         "raw_material_id": raw_material_id,
         "price": price,
@@ -60,6 +95,18 @@ def store_prices(raw_material_id, date, price):
 
 
 def main():
+    """
+    Main function to orchestrate the fetching and storing of raw material prices.
+
+    Attributes:
+        end_date (str): The end date for fetching prices, set to one day before today.:no-index:
+        start_date (str): The start date for fetching prices, set to two years before the current date.:no-index:
+        raw_materials (list): The list of raw materials fetched from the Supabase.:no-index:
+        current_start_date (datetime): The start date for the current iteration, initialized to the start_date.:no-index:
+        end_date_obj (datetime): The end date as a datetime object for comparison.:no-index:
+        current_end_date (datetime): The calculated end date for each 30-day chunk during iteration.:no-index:
+        prices_data (dict): The fetched price data for each symbol within the date range.:no-index:
+    """
     # Date range: last 2 years
     end_date = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')  # Use day prior to today
     start_date = (datetime.datetime.now() - datetime.timedelta(days=365 * 2)).strftime('%Y-%m-%d')
