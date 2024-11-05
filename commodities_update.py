@@ -17,22 +17,49 @@ Base = declarative_base()
 
 # ORM models for raw_materials and api_source
 class RawMaterial(Base):
+    """
+    Represents a raw material in the database.
+
+    Attributes:
+        uuid (UUID): The unique identifier for the raw material.:no-index:
+        raw_material_name (str): The name of the raw material.:no-index:
+        api_source (UUID): The identifier of the API source.:no-index:
+        symbol (str): The symbol associated with the raw material.:no-index:
+    """
     __tablename__ = 'raw_materials'
-    
     uuid = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     raw_material_name = Column(String)
     api_source = Column(UUID(as_uuid=True))
     symbol = Column(String)
 
 class ApiSource(Base):
+    """
+    Represents an API source in the database.
+
+    Attributes:
+        uuid (UUID): The unique identifier for the API source.:no-index:
+        name (str): The name of the API source.:no-index:
+        url (str): The URL for the API.:no-index:
+    """
     __tablename__ = 'api_sources'
-    
     uuid = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String)
     url = Column(String)
 
 # Fetch symbols from the Commodities API
 def fetch_commodities_symbols(api_url):
+    """
+    Fetch symbols from the Commodities API.
+
+    Args:
+        api_url (str): The API URL to fetch data from.
+
+    Returns:
+        dict: A dictionary containing symbol data.
+
+    Raises:
+        Exception: If the API request fails.
+    """
     response = requests.get(api_url)
     if response.status_code == 200:
         return response.json()
@@ -41,6 +68,16 @@ def fetch_commodities_symbols(api_url):
 
 # Update raw materials with matching symbols and UUID from the database
 def update_raw_materials_with_symbols():
+    """
+    Update raw materials in the database with matching symbols 
+    and UUID from the Commodities API.
+    
+    Fetches commodities API details from the api_source table, 
+    retrieves symbols from the Commodities API, and updates 
+    the raw materials in the database with the matching symbols.
+    
+    Prints updates to the console and commits changes to the database.
+    """
     # Fetch commodities API details from the api_source table
     commodities_api = session.query(ApiSource).filter_by(name="Commodities API").first()
     
