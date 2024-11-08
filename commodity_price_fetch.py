@@ -14,68 +14,106 @@ COMMODITIES_API_KEY = os.getenv("COMMODITIES_API_KEY")
 # Initialize Supabase client
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def fetch_raw_materials_symbols():
+def fetch_raw_materials_by_api_source(api_source_name):
     """
-    Fetch symbols from the raw_materials table in Supabase.
+    Fetch raw materials associated with a specific API source.
 
-    Returns:
-        list: A list of dictionaries containing 'uuid' and 'symbol' for each raw material.
-
-    Attributes:
-        response (dict): The response object from the Supabase query.:no-index:
-        data_list (list): A list of dictionaries containing the 'uuid' and 'symbol' of raw materials.:no-index:
-    """
-    response = supabase.table("raw_materials").select("uuid, symbol").execute()
+    Args:
+        api_source_name (str): The name of the API source (e.g., "Commodities API").
     
-    # Check if data is available
-    if response.data:
-        # Print and return a list of dictionaries containing all `uuid` and `symbol` values
-        data_list = [
-            {"uuid": item["uuid"], "symbol": item["symbol"]}
-            for item in response.data
-            if item["symbol"] and item["symbol"] != "NoSymbol"  # Exclude invalid symbols
-        ]
-        # print("Fetched data:", data_list)
-        return data_list
-    else:
-        print("No data found in raw_materials table.")
+    Returns:
+        list: A list of dictionaries containing `uuid` and `symbol` for the raw materials.
+    """
+    # Fetch the UUID of the API source from the api_sources table
+    api_source_response = supabase.table("api_sources").select("uuid").eq("name", api_source_name).execute()
+
+    # Extract the UUID of the API source
+    api_source_data = api_source_response.data
+    if not api_source_data:
+        print(f"No API source found with the name: {api_source_name}")
         return []
 
+    api_source_uuid = api_source_data[0]["uuid"]
 
-def fetch_prices_from_api(symbols, start_date, end_date):
+    # Fetch raw materials linked to the specific API source UUID
+    raw_materials_response = (
+        supabase.table("raw_materials")
+        .select("uuid, symbol")
+        .eq("api_source", api_source_uuid)
+        .execute()
+    )
+
+    # Extract and return the raw materials
+    raw_materials_data = raw_materials_response.data
+    if not raw_materials_data:
+        print(f"No raw materials found for API source: {api_source_name}")
+        return []
+
+    return raw_materials_data
+
+
+def fetch_prices_from_api(symbols, start_date, end_date, api_source):
     """
-    Fetch historical prices from the Commodities API for a list of symbols.
+    Fetch historical prices from Metals or Commodities API for the given symbols.
 
     Args:
         symbols (list): A list of symbols to fetch prices for.
         start_date (str): The start date for the price data in 'YYYY-MM-DD' format.
         end_date (str): The end date for the price data in 'YYYY-MM-DD' format.
+        api_source (str): The source of the API ('Metals API' or 'Commodities API').
 
     Returns:
         dict: A dictionary containing historical price data indexed by date.
-
-    Attributes:
-        url (str): The endpoint for fetching time series data from the Commodities API.:no-index:
-        params (dict): The parameters for the API request.:no-index:
-        response (Response): The response object from the API request.:no-index:
-        data (dict): The parsed JSON data from the API response.:no-index:
     """
-    url = os.getenv("TIME_SERIES_COMMODITIES_API_END_POINT")  
+    # Set URL and API key based on the API source
+    if api_source == "Commodities API":
+        url = os.getenv("TIME_SERIES_COMMODITIES_API_END_POINT")
+        api_key = os.getenv("COMMODITIES_API_KEY")
+    elif api_source == "Metals API":
+        url = os.getenv("TIME_SERIES_METALS_API_END_POINT")
+        api_key = os.getenv("METALS_API_KEY")
+    else:
+        print(f"Unsupported API source: {api_source}. Skipping.")
+        return {}
+
     params = {
-        "access_key": COMMODITIES_API_KEY,
+        "access_key": api_key,
         "start_date": start_date,
         "end_date": end_date,
-        "symbols": symbol,
+        "symbols": symbols,  
     }
-    print("The item for which data is fetched", symbols)
-    response = requests.get(url, params=params)
-    
-    data = response.json()
-    if data.get("error"):
-        print(f"Error fetching data: {data['error']}")
-    return data.get("data", {}).get("rates", {})
 
-def store_prices(raw_material_id, date, price):
+    response = requests.get(url, params=params)
+    data = response.json()
+    
+
+    # Extract rates and units from the API response
+    rates = data.get("rates", {})
+    
+    # Handle case if rates are not available
+    if not isinstance(rates, dict):
+        print(f"Unexpected data format for rates: {type(rates)}. Skipping this period.")
+        return {}
+
+    price_data = {}
+    for date, daily_rates in rates.items():
+        price_data[date] = {}
+        for symbol in symbols:
+            if symbol in daily_rates:
+                # For Metals API, default unit to 'per ounce'
+                if api_source == "Metals API":
+                    unit = "per ounce"
+                # For Commodities API, fetch the correct unit from the response (if available)
+                elif api_source == "Commodities API":
+                    # Assuming that unit is present in the response, we will get it here
+                    unit = data.get("unit", {}).get(symbol, "N/A")
+                price_data[date][symbol] = {
+                    "price": daily_rates[symbol],
+                    "unit": unit  
+                }
+    return price_data
+
+def store_prices(raw_material_id, date, price, unit):
     """
     Store price data in raw_material_prices table in Supabase.
 
@@ -83,13 +121,12 @@ def store_prices(raw_material_id, date, price):
         raw_material_id (UUID): The unique identifier of the raw material.
         date (str): The date for which the price is recorded.
         price (float): The price of the raw material on the given date.
-
-    Attributes:
-        response (dict): The response object from the Supabase insert operation.:no-index:
+        unit (str): The unit of measurement for the price.
     """
     supabase.table("raw_material_prices").insert({
         "raw_material_id": raw_material_id,
         "price": price,
+        "unit": unit,
         "recorded_at": date
     }).execute()
 
@@ -111,9 +148,9 @@ def main():
     end_date = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')  # Use day prior to today
     start_date = (datetime.datetime.now() - datetime.timedelta(days=365 * 2)).strftime('%Y-%m-%d')
 
+    api_source = "Metals API"  # or "Commodities API"
     # Fetch symbols from Supabase
-    raw_materials = fetch_raw_materials_symbols()
-
+    raw_materials = fetch_raw_materials_by_api_source(api_source)
     for material in raw_materials:
         symbol = material["symbol"]
         raw_material_id = material["uuid"]
@@ -134,7 +171,7 @@ def main():
             formatted_end_date = current_end_date.strftime('%Y-%m-%d')
 
             # Fetch prices for the single symbol in this 30-day chunk
-            prices_data = fetch_prices_from_api([symbol], formatted_start_date, formatted_end_date)
+            prices_data = fetch_prices_from_api([symbol], formatted_start_date, formatted_end_date, api_source)
 
             # Check if prices_data is valid and contains the expected structure
             if not prices_data or not isinstance(prices_data, dict):
@@ -145,10 +182,11 @@ def main():
             # Store the data for this symbol
             for date, symbols_data in prices_data.items():
                 if symbol in symbols_data:
-                    price = symbols_data[symbol]
+                    price = symbols_data[symbol]["price"]
+                    unit = symbols_data[symbol]["unit"]  # Extract unit here
                     # Store each day's price for the symbol in the database
-                    store_prices(raw_material_id, date, price)
-                    print(f"Stored price for {symbol} on {date}: {price}")
+                    store_prices(raw_material_id, date, price, unit)
+                    print(f"Stored price for {symbol} on {date}: {price} {unit}")
 
             # Move to the next 30-day period
             current_start_date = current_end_date
