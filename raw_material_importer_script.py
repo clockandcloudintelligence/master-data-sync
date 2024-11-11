@@ -5,28 +5,51 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def insert_data_into_table(supabase: Client, table_name: str, data_frame: pd.DataFrame):
+def insert_data_into_table(supabase: Client, table_name: str, data_frame: pd.DataFrame, unique_columns: list = None):
     """
-    Insert data into a specified Supabase table.
-
+    Insert data into a specified Supabase table, checking for duplicates based on unique columns.
+    
     Args:
         supabase (Client): The Supabase client instance.
         table_name (str): The name of the Supabase table to insert data into.
         data_frame (pd.DataFrame): The DataFrame containing data to insert.
-
+        unique_columns (list): The list of column names to check for uniqueness before insertion.
+    
     Returns:
         None
     """
     relevant_data = data_frame.dropna(how='all').drop_duplicates()
+    
+    # Loop through each row in the cleaned DataFrame
     for index, row in relevant_data.iterrows():
-        cleaned_row_dict = {k: str(v) for k, v in row.to_dict().items() if pd.notna(v) and v != ''}
-        if cleaned_row_dict:  # Ensure only non-empty rows are inserted
-            response = supabase.table(table_name).insert(cleaned_row_dict).execute()
-            # Check for errors
-            if response.data is None:  # If data is None, there was an error
-                print(f"Error inserting into {table_name}: {response.status_code} - {response.error}")
+        cleaned_row_dict = {k: str(v).strip() for k, v in row.to_dict().items() if pd.notna(v) and v != ''}
+        
+        # If unique_columns are provided, check for duplicates based on those columns
+        if unique_columns:
+            # Build the query to check if the entry already exists based on the unique columns
+            for column in unique_columns:
+                if column not in cleaned_row_dict:
+                    print(f"Skipping row due to missing required column: {column}")
+                    continue
+
+            # Check for duplicate entries based on the unique_columns
+            query = supabase.table(table_name).select(*unique_columns)
+            for column in unique_columns:
+                query = query.eq(column, cleaned_row_dict[column])
+            response = query.execute()
+
+            # If duplicate found, skip the row
+            if response.data and len(response.data) > 0:
+                print(f"Skipping duplicate entry: {cleaned_row_dict} already exists.")
+                continue  # Skip if duplicate found
+        
+        # If no duplicates, insert the data
+        response = supabase.table(table_name).insert(cleaned_row_dict).execute()
+        
+        if response.data is None:  # If data is None, there was an error
+            print(f"Error inserting into {table_name}: {response.status_code} - {response.error}")
         else:
-            print(f"Skipping empty or invalid row in {table_name}")
+            print(f"Successfully inserted {cleaned_row_dict} into {table_name}.")
 
 def retrieve_ids(supabase: Client, table_name: str, name_column: str) -> dict:
     """
@@ -87,25 +110,29 @@ def main():
         'industry': 'industry_name'                  # Matches industries table
     })
 
-    # Insert into the 'applications' table (only application_name)
-    applications_data = filtered_data[['application_name']].drop_duplicates()
-    insert_data_into_table(supabase, 'applications', applications_data)
-
+    applications_data = filtered_data[['application_name']].drop_duplicates(subset=['application_name'])
+    insert_data_into_table(supabase, 'applications', applications_data, unique_columns=['application_name'])
+   
     # Insert into the 'raw_materials' table (only raw_material_name)
     raw_materials_data = filtered_data[['raw_material_name']].drop_duplicates(subset=['raw_material_name'])
     insert_data_into_table(supabase, 'raw_materials', raw_materials_data)
 
     # Prepare data for the industries table with splitting
-    industries_data = []
+    industries_data = set()  # Use a set to automatically handle duplicates
+
     for _, row in filtered_data.iterrows():
         if pd.notna(row['industry_name']) and row['industry_name'].strip() != "":
+            # Split and process each industry name
             for industry in row['industry_name'].split('/'):
-                industry = industry.strip()
+                industry = industry.strip()  # Trim whitespace
                 if industry:  # Only add non-empty industry names
-                    industries_data.append({'industry_name': industry})
+                    industries_data.add(industry)
 
-    industries_data_df = pd.DataFrame(industries_data).drop_duplicates()
-    insert_data_into_table(supabase, 'industries', industries_data_df)
+    # Convert set to a DataFrame, as expected by insert_data_into_table
+    industries_df = pd.DataFrame({'industry_name': list(industries_data)})
+
+    # Insert into the 'industries' table, ensuring uniqueness on 'industry_name'
+    insert_data_into_table(supabase, 'industries', industries_df, unique_columns=['industry_name'])
 
     # Get the mappings of names to IDs
     applications_ids = retrieve_ids(supabase, 'applications', 'application_name')
@@ -115,20 +142,28 @@ def main():
     # Prepare data for the junction table industries_applications with correct IDs
     industries_applications_data = []
 
+        # Iterate through each row in the filtered data
     for index, row in filtered_data.iterrows():
         application_id = applications_ids.get(row['application_name'])
-        industry_name = row['industry_name']
+        industry_names = row['industry_name']  # Get the industry name field (may contain multiple industries)
 
         # Check if industry_name is not NaN or empty
-        if pd.notna(industry_name) and isinstance(industry_name, str):
-            industry_id = industry_ids.get(industry_name.strip())
-
-            # Append to the list if both IDs are valid
-            if industry_id and application_id:
-                industries_applications_data.append({
-                    'industry_id': industry_id,
-                    'application_id': application_id
-                })
+        if pd.notna(industry_names) and isinstance(industry_names, str):
+            # Split industry names by '/' and strip whitespace
+            for industry_name in industry_names.split('/'):
+                industry_name = industry_name.strip()  # Remove extra whitespace around industry name
+                
+                # Get the industry_id for each industry
+                industry_id = industry_ids.get(industry_name)
+                
+                # Append to the list if both IDs are valid
+                if industry_id and application_id:
+                    industries_applications_data.append({
+                        'industry_id': industry_id,
+                        'application_id': application_id
+                    })
+                else:
+                    print(f"Skipping invalid industry or application. Industry: {industry_name}, Application: {row['application_name']}")
         else:
             # Print row index and application_name if industry_name is invalid
             print(f"Skipping row {index} with empty or NaN industry_name. Application name: {row['application_name']}")
@@ -136,13 +171,13 @@ def main():
     # Insert into the industries_applications junction table
     if industries_applications_data:
         industries_applications_df = pd.DataFrame(industries_applications_data)
-        insert_data_into_table(supabase, 'industries_applications', industries_applications_df)
-
+        insert_data_into_table(supabase, 'industries_applications', industries_applications_df, unique_columns=['industry_id', 'application_id'])
+        
     # Prepare and insert into the raw_materials_applications table
     raw_materials_applications_data = []
 
     # Iterate over the filtered data
-    for _, row in filtered_data.iterrows():
+    for index, row in filtered_data.iterrows():
         # Retrieve IDs for raw material and application
         raw_material_id = raw_materials_ids.get(row['raw_material_name'])  # Get the raw material ID
         application_id = applications_ids.get(row['application_name'])     # Get the application ID
@@ -154,11 +189,14 @@ def main():
                 'application_id': application_id,                          # Use the application ID
                 'application_percentage': str(row['application_percentage']).strip(),  # Store percentage as string
             })
+        else:
+            # Print row index and raw material/application name if IDs are invalid
+            print(f"Skipping row {index} due to missing raw_material_id or application_id.")
 
     # Insert into the raw_materials_applications table
     if raw_materials_applications_data:
         raw_materials_applications_df = pd.DataFrame(raw_materials_applications_data)
-        insert_data_into_table(supabase, 'raw_materials_applications', raw_materials_applications_df)
+        insert_data_into_table(supabase, 'raw_materials_applications', raw_materials_applications_df, unique_columns=['raw_material_id', 'application_id'])
 
     # Load country data
     filtered_countries_data = countries_data[['country_name', 'raw_material_name', 'production_percentage']]
