@@ -16,7 +16,7 @@ This script performs the following tasks:
 
    .. code-block:: bash
 
-      python commodities_update.py or  python3 commodities_update.py
+      python commodities_update.py "Commodities API" or  python3 commodities_update.py "Commodities API"
 
 3. Review the console output for information on updated records.
 
