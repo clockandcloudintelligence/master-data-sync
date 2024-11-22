@@ -1,5 +1,5 @@
 import pandas as pd
-from sqlalchemy import create_engine, Table, Column, String, Float, Numeric, MetaData, insert, select
+from sqlalchemy import create_engine, Table, Column, String, Float, Numeric, MetaData, insert, select, exc
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 import os
@@ -8,6 +8,7 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from slugify import slugify
+from sqlalchemy.dialects.postgresql import insert
 
 # Load environment variables
 load_dotenv()
@@ -65,6 +66,64 @@ routes_choke_points = Table(
     Column("updated_at", String)
 )
 
+ports = Table(
+    "country_ports", metadata,
+    Column("uuid", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
+    Column("port_name", String, nullable=False, unique=True),
+    Column("created_at", String),
+    Column("updated_at", String),
+    Column("latitude", Numeric),
+    Column("longitude", Numeric),
+    Column("country_id", UUID(as_uuid=True)),
+    Column("import_percentage_maritime_trade", String),
+    Column("export_percentage_maritime_trade", String),
+    Column("percentage_total_ships_type1", String),
+    Column("percentage_total_ships_type2", String),
+    Column("annual_vessel_composition_type3", String),
+    Column("percentage_total_ships_type3", String),
+    Column("annual_vessel_composition_type4", String),
+    Column("percentage_total_ships_type4", String),
+)
+
+countries = Table(
+    "countries", metadata,
+    Column("uuid", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
+    Column("country_name", String, nullable=False, unique=True), 
+    Column("created_at", String),  
+    Column("updated_at", String),
+    Column("isoalphathree", String),
+    Column("geojson", String), 
+)
+
+industries = Table(
+    "industries",
+    metadata,
+    Column("uuid", UUID, primary_key=True),
+    Column("industry_name", String, nullable=True, unique=True),
+    Column("created_at", String),
+    Column("updated_at", String),
+)
+
+countries_port_industries = Table(
+    "countries_port_industries",
+    metadata,
+    Column("uuid",UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
+    Column("port_id", UUID(as_uuid=True)),
+    Column("industry_id", UUID(as_uuid=True)),
+    Column("created_at", String),
+    Column("updated_at", String),
+)
+
+port_cargo_type = Table(
+    "port_cargo_type",
+    metadata,
+    Column("uuid", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
+    Column("port_id", UUID(as_uuid=True)),  
+    Column("cargo_type_id", UUID(as_uuid=True)),  
+    Column("created_at", String),
+    Column("updated_at", String),
+)
+
 # Load CSV data
 def load_data_from_csv(file_path):
     """Load data from a CSV file and drop completely empty rows."""
@@ -119,7 +178,7 @@ def insert_cargo_types(data):
     })
     insert_data_into_table(cargo_types, data, ["cargo_type_name"])
 
-def insert_junction_table(data):
+def insert_choke_points_cargo_types(data):
     with engine.connect() as connection:
         # Begin a transaction explicitly
         with connection.begin():
@@ -247,6 +306,187 @@ def insert_route_chokepoints(route_name, data):
                 else:
                     print(f"Chokepoint '{chokepoint_name}' not found in choke_points table.")
 
+
+def insert_ports(data):
+    with engine.connect() as connection:
+        # Start a transaction
+        with connection.begin():
+            for _, row in data.iterrows():
+                # Fetch country_id using country_name
+                country_name = row.get("country", "").strip()
+                country = connection.execute(
+                    select(countries.c.uuid).where(countries.c.country_name == country_name)
+                ).fetchone()
+
+                if not country:
+                    print(f"Country '{country_name}' not found in countries table. Skipping.")
+                    continue
+
+                country_id = str(country[0])
+
+                # Map CSV columns to database table columns
+                port_data = {
+                    'port_name': row.get('port_name', '').strip(),
+                    'latitude': row.get('latitude', None),
+                    'longitude': row.get('longitude', None),
+                    'country_id': country_id,
+                    'import_percentage_maritime_trade': row.get('import_percentage_countrys_maritime_trade', '').strip(),
+                    'export_percentage_maritime_trade': row.get('export_percentage_countrys_maritime_trade', '').strip(),
+                    'percentage_total_ships_type1': row.get('%_of_total_ships1', '').strip(),
+                    'percentage_total_ships_type2': row.get('%_of_total_ships2', '').strip(),
+                    'percentage_total_ships_type3': row.get('%_of_total_ships3', '').strip(),
+                    'percentage_total_ships_type4': row.get('%_of_total_ships4', '').strip()
+                }
+
+                # Validate mandatory fields
+                if not port_data['port_name']:
+                    print(f"Missing port_name. Skipping row: {row}")
+                    continue
+
+                # Insert into ports table
+                try:
+                    connection.execute(insert(ports).values(port_data))
+                    print(f"Inserted port '{port_data['port_name']}' for country '{country_name}'.")
+                except Exception as e:
+                    print(f"Error inserting port '{port_data['port_name']}': {e}")
+
+def insert_countries_port_industries(data_frame):
+    """
+    Process data for countries_port_industries junction table.
+    Ensure industries exist in the industries table, and map them to ports.
+    """
+    with engine.connect() as connection:
+        with connection.begin():  # Start transaction
+            for _, row in data_frame.iterrows():
+                # Get country name, port name, and industry columns
+                port_name = row["port_name"].strip()
+                industry_list = [
+                    row["top1_industry"].strip(),
+                    row["top2_industry"].strip(),
+                    row["top3_industry"].strip(),
+                ]
+
+                # Fetch the UUID of the port
+                port_result = connection.execute(
+                    select(ports.c.uuid).where(ports.c.port_name == port_name)
+                ).fetchone()
+
+                if not port_result:
+                    print(f"Port '{port_name}' not found. Skipping row.")
+                    continue
+
+                # Convert port UUID to string
+                port_uuid = str(port_result[0])
+
+                for industry_name in industry_list:
+                    if not industry_name or industry_name == "-":  # Skip empty or invalid industries
+                        continue
+
+                    # Check if the industry exists
+                    industry_result = connection.execute(
+                        select(industries.c.uuid).where(industries.c.industry_name == industry_name)
+                    ).fetchone()
+
+                    # Insert the industry if it does not exist
+                    if not industry_result:
+                        try:
+                            print(f"Industry '{industry_name}' not found. Adding to industries table.")
+                            industry_uuid = str(uuid.uuid4())  # Generate a new UUID for the industry
+                            connection.execute(
+                                insert(industries).values(
+                                    industry_name=industry_name
+                                )
+                            )
+                        except exc.IntegrityError:
+                            print(f"Failed to insert industry '{industry_name}'. Skipping.")
+                            continue
+                        except Exception as e:
+                            print(f"Error inserting industry '{industry_name}': {e}")
+                            continue
+                    else:
+                        # Use the existing industry's UUID
+                        industry_uuid = str(industry_result[0])
+
+                    # Insert into the junction table
+                    try:
+                        connection.execute(
+                            insert(countries_port_industries).values(
+                                port_id=port_uuid, 
+                                industry_id=industry_uuid
+                            )
+                        )
+                        print(f"Linked port '{port_name}' with industry '{industry_name}'.")
+                    except exc.IntegrityError as e:
+                        print(f"Duplicate entry for port '{port_name}' and industry '{industry_name}': {e}")
+                    except Exception as e:
+                        print(f"Error linking port '{port_name}' with industry '{industry_name}': {e}")
+
+def insert_port_cargo_type(data_frame):
+    with engine.connect() as connection:
+        with connection.begin():  
+            for _, row in data_frame.iterrows():
+                port_name = row["port_name"].strip() 
+                cargo_types_list = [
+                    row["annual_vessel_composition1"].strip(),
+                    row["annual_vessel_composition2"].strip(),
+                    row["annual_vessel_composition3"].strip(),
+                    row["annual_vessel_composition4"].strip(),
+                    row["annual_vessel_composition5"].strip(),
+                ]
+
+                # Fetch port UUID from country_ports
+                port_result = connection.execute(
+                    select(ports.c.uuid).where(ports.c.port_name == port_name)
+                ).fetchone()
+
+                if not port_result:
+                    print(f"Port '{port_name}' not found in country_ports. Skipping row.")
+                    continue
+
+                port_uuid = str(port_result[0])
+
+                for cargo_type_name in cargo_types_list:
+                    if not cargo_type_name or cargo_type_name == "-":  
+                        continue
+
+                    # Fetch cargo type UUID from cargo_types
+                    cargo_type_result = connection.execute(
+                        select(cargo_types.c.uuid).where(cargo_types.c.cargo_type_name == cargo_type_name)
+                    ).fetchone()
+
+                    if not cargo_type_result:
+                        # Insert the cargo type if it does not exist
+                        try:
+                            print(f"Cargo type '{cargo_type_name}' not found. Adding to cargo_types table.")
+                            cargo_type_uuid = str(uuid.uuid4())
+                            connection.execute(
+                                insert(cargo_types).values(
+                                    cargo_type_name=cargo_type_name,
+                                )
+                            )
+                        except exc.IntegrityError:
+                            print(f"Failed to insert cargo type '{cargo_type_name}'. Skipping.")
+                            continue
+                        except Exception as e:
+                            print(f"Error inserting cargo type '{cargo_type_name}': {e}")
+                            continue
+                    else:
+                        cargo_type_uuid = str(cargo_type_result[0])
+
+                    # Insert into port_cargo_type table
+                    try:
+                        connection.execute(
+                            insert(port_cargo_type).values(
+                                port_id=port_uuid,
+                                cargo_type_id=cargo_type_uuid,
+                            )
+                        )
+                        print(f"Linked port '{port_name}' with cargo type '{cargo_type_name}'.")
+                    except exc.IntegrityError as e:
+                        print(f"Duplicate entry for port '{port_name}' and cargo type '{cargo_type_name}': {e}")
+                    except Exception as e:
+                        print(f"Error linking port '{port_name}' with cargo type '{cargo_type_name}': {e}")
+
 def process_single_route_row(row):
     route_name = row['route_name']
     insert_route_chokepoints(route_name, row)
@@ -289,7 +529,7 @@ def main():
     ]
     insert_choke_points(choke_points_data)
     insert_cargo_types(cargo_types_data)
-    insert_junction_table(junction_data)
+    insert_choke_points_cargo_types(junction_data)
 
 
     new_csv = "route_choke_points_data.csv"
@@ -307,7 +547,24 @@ def main():
 
     # Insert into routes_choke_point junction table
     process_csv("route_choke_points_data.csv")
-    
+
+    # File path for the ports CSV file
+    ports_csv = "ports_country.csv"
+
+    # Load ports data
+    ports_data = load_data_from_csv(ports_csv)
+
+    ports_data = ports_data.drop_duplicates(subset=["port_name"])
+
+    # Insert data into ports table
+    insert_ports(ports_data)
+
+    industries_data = load_data_from_csv(ports_csv)
+    industries_data = industries_data.drop_duplicates(subset=["country", "top1_industry", "top2_industry", "top3_industry"])
+    insert_countries_port_industries(industries_data)
+
+    data_frame = load_data_from_csv(ports_csv)
+    insert_port_cargo_type(data_frame)
 
 if __name__ == "__main__":
     main()
