@@ -126,10 +126,31 @@ port_cargo_type = Table(
 
 # Load CSV data
 def load_data_from_csv(file_path):
-    """Load data from a CSV file and drop completely empty rows."""
+    """
+    Load data from a CSV file and drop completely empty rows.
+
+    :param file_path: str
+        Path to the CSV file to load.
+    :return: pandas.DataFrame
+        DataFrame containing the data from the CSV file, with completely empty rows removed.
+    """
     return pd.read_csv(file_path).dropna(how="all")
 
 def insert_data_into_table(table, data_frame, unique_columns):
+    """
+    Insert data from a DataFrame into a database table, ensuring no duplicates based on unique columns.
+
+    This function checks for duplicate rows in the database based on the provided unique columns.
+    If a row already exists, it skips the insertion. Otherwise, it inserts the new data.
+
+    :param table: sqlalchemy.Table
+        The SQLAlchemy Table object representing the database table.
+    :param data_frame: pandas.DataFrame
+        The DataFrame containing the data to be inserted.
+    :param unique_columns: list of str
+        A list of column names used to determine uniqueness in the database.
+    :return: None
+    """
     with engine.connect() as connection:
         with connection.begin():  # Ensures commit happens at the end
             for _, row in data_frame.iterrows():
@@ -160,6 +181,16 @@ def insert_data_into_table(table, data_frame, unique_columns):
 
 # Insert data into choke_points table
 def insert_choke_points(data):
+    """
+    Insert chokepoint data into the `choke_points` table.
+
+    Strips whitespace around chokepoint names to avoid duplicates and maps CSV columns 
+    to database table columns before insertion.
+
+    :param data: pandas.DataFrame
+        DataFrame containing chokepoint data with the column `primary_chokepoints`.
+    :return: None
+    """
     # Strip spaces around chokepoint_name to avoid duplicate entries with trailing spaces
     data["primary_chokepoints"] = data["primary_chokepoints"].str.strip()
 
@@ -172,6 +203,15 @@ def insert_choke_points(data):
 
 # Insert data into cargo_types table
 def insert_cargo_types(data):
+    """
+    Insert cargo type data into the `cargo_types` table.
+
+    Maps CSV columns to database table columns and ensures no duplicates exist.
+
+    :param data: pandas.DataFrame
+        DataFrame containing cargo type data with the column `vessel_composition_cargo_type`.
+    :return: None
+    """
     # Map CSV columns to database table columns
     data = data.rename(columns={
         "vessel_composition_cargo_type": "cargo_type_name"
@@ -179,6 +219,16 @@ def insert_cargo_types(data):
     insert_data_into_table(cargo_types, data, ["cargo_type_name"])
 
 def insert_choke_points_cargo_types(data):
+    """
+    Insert data into the junction table linking chokepoints and cargo types.
+
+    Looks up foreign key IDs for chokepoints and cargo types and inserts the 
+    corresponding data into the junction table, ensuring valid relationships.
+
+    :param data: pandas.DataFrame
+        DataFrame containing relationships between chokepoints and cargo types.
+    :return: None
+    """
     with engine.connect() as connection:
         # Begin a transaction explicitly
         with connection.begin():
@@ -234,6 +284,17 @@ def insert_choke_points_cargo_types(data):
 
     # Insert data into routes table
 def insert_routes(data):
+    """
+    Insert route data into the `routes` table.
+
+    Maps CSV columns to database table columns, generates a slug for each route,
+    and inserts the data while ensuring no duplicates.
+
+    :param data: pandas.DataFrame
+        DataFrame containing route data with columns `route_name`, `importance`, 
+        `market1`, and `market2`.
+    :return: None
+    """
     # Map CSV columns to database table columns
     data = data.rename(columns={
         "route_name": "route_name",
@@ -249,6 +310,18 @@ def insert_routes(data):
     insert_data_into_table(routes, data, ["slug"])
 
 def insert_route_chokepoints(route_name, data):
+    """
+    Link a route to its chokepoints in the `routes_choke_points` junction table.
+
+    Looks up foreign key IDs for the route and its associated chokepoints and inserts 
+    the relationships into the database.
+
+    :param route_name: str
+        The name of the route.
+    :param data: dict
+        Dictionary containing chokepoint information (columns `chokepoint1` to `chokepoint10`).
+    :return: None
+    """
     with engine.connect() as connection:
         # Start a transaction to ensure all operations are atomic
         with connection.begin():
@@ -308,6 +381,17 @@ def insert_route_chokepoints(route_name, data):
 
 
 def insert_ports(data):
+    """
+    Insert port data into the `ports` table.
+
+    Maps port data from the CSV file, validates mandatory fields, and links ports
+    to countries using foreign keys.
+
+    :param data: pandas.DataFrame
+        DataFrame containing port data with columns like `port_name`, `latitude`, 
+        `longitude`, and `country`.
+    :return: None
+    """
     with engine.connect() as connection:
         # Start a transaction
         with connection.begin():
@@ -352,8 +436,20 @@ def insert_ports(data):
 
 def insert_countries_port_industries(data_frame):
     """
-    Process data for countries_port_industries junction table.
-    Ensure industries exist in the industries table, and map them to ports.
+    Insert data into the `countries_port_industries` junction table, mapping ports to their industries.
+
+    This function ensures that industries exist in the `industries` table and creates entries in the
+    `countries_port_industries` table to link ports with their corresponding industries.
+
+    :param data_frame: pandas.DataFrame
+        DataFrame containing the data to be processed. The DataFrame must include the following columns:
+        - `port_name`: Name of the port to be linked.
+        - `top1_industry`, `top2_industry`, `top3_industry`: Names of the industries associated with the port.
+
+    :raises Exception:
+        Handles database-related exceptions and prints error messages for each failure case.
+
+    :return: None
     """
     with engine.connect() as connection:
         with connection.begin():  # Start transaction
@@ -422,6 +518,22 @@ def insert_countries_port_industries(data_frame):
                         print(f"Error linking port '{port_name}' with industry '{industry_name}': {e}")
 
 def insert_port_cargo_type(data_frame):
+    """
+    Insert data into the `port_cargo_type` junction table, mapping ports to their cargo types.
+
+    This function ensures that cargo types exist in the `cargo_types` table and creates entries in the
+    `port_cargo_type` table to link ports with their associated cargo types.
+
+    :param data_frame: pandas.DataFrame
+        DataFrame containing the data to be processed. The DataFrame must include the following columns:
+        - `port_name`: Name of the port to be linked.
+        - `annual_vessel_composition1` to `annual_vessel_composition5`: Names of cargo types associated with the port.
+
+    :raises Exception:
+        Handles database-related exceptions and prints error messages for each failure case.
+
+    :return: None
+    """
     with engine.connect() as connection:
         with connection.begin():  
             for _, row in data_frame.iterrows():
@@ -488,11 +600,46 @@ def insert_port_cargo_type(data_frame):
                         print(f"Error linking port '{port_name}' with cargo type '{cargo_type_name}': {e}")
 
 def process_single_route_row(row):
+    """
+    Process a single route row and insert associated chokepoints.
+
+    This function processes a single row from the dataset, extracting the route name and passing it
+    along with the row's data to the `insert_route_chokepoints` function for further processing.
+
+    :param row: pandas.Series
+        A single row of data representing a route. The row must include the following column:
+        - `route_name`: Name of the route to be processed.
+
+    :raises KeyError:
+        If the `route_name` column is missing in the row.
+
+    :return: None
+    """
     route_name = row['route_name']
     insert_route_chokepoints(route_name, row)
 
 # Main processing logic
 def process_csv(csv_file):
+    """
+    Process a CSV file to extract and process route data.
+
+    This function reads a CSV file into a pandas DataFrame and iterates through its rows, processing
+    each route by calling `process_single_route_row`.
+
+    :param csv_file: str
+        The path to the CSV file containing route data. The CSV file should have a column named `route_name`.
+
+    :raises FileNotFoundError:
+        If the specified CSV file cannot be found.
+
+    :raises pd.errors.EmptyDataError:
+        If the CSV file is empty or cannot be parsed as a valid file.
+
+    :raises KeyError:
+        If the required columns (e.g., `route_name`) are missing in the CSV file.
+
+    :return: None
+    """
     data = pd.read_csv(csv_file)
 
     # Iterate over the rows and process each row
