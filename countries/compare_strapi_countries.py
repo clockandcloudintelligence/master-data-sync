@@ -16,6 +16,15 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 # Fetch countries from Strapi
 def fetch_countries_from_strapi():
+    """
+    Fetches a list of countries from the Strapi API in a paginated manner.
+
+    Uses the Strapi API to fetch country names, supporting pagination to retrieve 
+    all available countries. Each page fetches a maximum of 100 countries.
+
+    :returns: List of country names fetched from Strapi.
+    :rtype: list[str]
+    """
     try:
         headers = {"Authorization": f"Bearer {STRAPI_API_KEY}"}
         countries = []
@@ -44,6 +53,17 @@ def fetch_countries_from_strapi():
 
 # Fetch countries from Supabase
 def fetch_countries_from_supabase(supabase: Client):
+    """
+    Fetches a list of countries stored in the Supabase database.
+
+    Retrieves country names from the Supabase `countries` table.
+
+    :param supabase: The Supabase client object to interact with the database.
+    :type supabase: Client
+    
+    :returns: List of country names stored in Supabase.
+    :rtype: list[str]
+    """
     try:
         response = supabase.table("countries").select("country_name").execute()
         # Supabase Python client doesn't return an `error` attribute; directly handle the response.
@@ -54,6 +74,17 @@ def fetch_countries_from_supabase(supabase: Client):
 
 # Add missing countries to Supabase
 def add_missing_countries_to_supabase(supabase: Client, missing_countries):
+    """
+    Adds missing countries to the Supabase `countries` table.
+
+    Checks for each missing country if it already exists in the Supabase `countries` table.
+    If the country does not exist, it inserts the new country into the table.
+
+    :param supabase: The Supabase client object to interact with the database.
+    :type supabase: Client
+    :param missing_countries: List of country names that are missing from Supabase.
+    :type missing_countries: list[str]
+    """
     try:
         for country_name in missing_countries:
             # Check if the country already exists (to prevent duplicates)
@@ -78,6 +109,13 @@ def add_missing_countries_to_supabase(supabase: Client, missing_countries):
 
 # Main script execution
 def main():
+    """
+    Main script execution that fetches countries from Strapi and Supabase, compares them,
+    and adds any missing countries to Supabase.
+
+    The script fetches the list of countries from Strapi and Supabase, compares them,
+    and adds the countries missing in Supabase to the `countries` table.
+    """
     # Initialize Supabase client
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     
