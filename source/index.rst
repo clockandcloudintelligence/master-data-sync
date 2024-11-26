@@ -11,3 +11,4 @@ It includes information on the modules, classes, and functions used to synchroni
    commodities_update
    commodity_price_fetch
    raw_material_importer_script
+   logistics_data_importer_script
