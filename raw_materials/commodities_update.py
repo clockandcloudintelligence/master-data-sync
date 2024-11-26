@@ -64,13 +64,8 @@ class ApiSource(Base):
     name = Column(String)
     url = Column(String)
 
-# Command-line argument validation
-if len(sys.argv) != 2:
-    print("Usage: python3 commodities_update.py <API Source Name>")
-    sys.exit(1)
-
-# Fetching API source name from command-line arguments
-api_source_name = sys.argv[1]
+# Predefined API source name
+api_source_name = "Commodities API"  # Replace this with "Metals API" or any other source name as needed
 
 # Fetch specific API source from the database
 api_source = session.query(ApiSource).filter_by(name=api_source_name).first()
@@ -79,11 +74,11 @@ api_source = session.query(ApiSource).filter_by(name=api_source_name).first()
 if not api_source:
     print(f"API source '{api_source_name}' not found in the database.")
     sys.exit(1)
-
+    
 # Determine the API key based on the API source name
-if api_source_name.lower() == "commodities api":
+if api_source_name == "Commodities API":
     api_key = os.getenv("COMMODITIES_API_KEY")
-elif api_source_name.lower() == "metal api":
+elif api_source_name == "Metals API":
     api_key = os.getenv("METAL_API_KEY")
 else:
     print(f"Unknown API source: {api_source_name}")
