@@ -736,25 +736,25 @@ def insert_ports_route_junction_table(data_frame):
 # Main function
 def main():
     # File path for the single CSV file
-    single_csv = "cargo_type_choke_points.csv"
+    cargo_type_choke_points_csv = "cargo_type_choke_points.csv"
 
     # Load data
-    data = load_data_from_csv(single_csv)
+    cargo_type_choke_points_data = load_data_from_csv(cargo_type_choke_points_csv)
 
     # Extract unique choke_points data
-    choke_points_data = data[
+    choke_points_data = cargo_type_choke_points_data[
         ["primary_chokepoints",
         "latitude", 
         "longitude"]
     ].drop_duplicates()
 
     # Extract unique cargo_types data
-    cargo_types_data = data[
+    cargo_types_data = cargo_type_choke_points_data[
         ["vessel_composition_cargo_type"]
     ].drop_duplicates()
 
     # Extract junction table data
-    junction_data = data[
+    junction_data = cargo_type_choke_points_data[
         [
             "primary_chokepoints",
             "vessel_composition_cargo_type",
@@ -768,13 +768,13 @@ def main():
     insert_choke_points_cargo_types(junction_data)
 
 
-    new_csv = "route_choke_points_data.csv"
+    route_choke_points_csv = "route_choke_points_data.csv"
 
     # Load data
-    data = load_data_from_csv(new_csv)
+    route_choke_points_data = load_data_from_csv(route_choke_points_csv)
 
     # Extract routes data
-    routes_data = data[
+    routes_data = route_choke_points_data[
         ["route_name", "importance", "market1", "market2"]
     ].drop_duplicates()
 
@@ -782,7 +782,7 @@ def main():
     insert_routes(routes_data)
 
     # Insert into routes_choke_point junction table
-    process_csv_insert_route_choke_point("route_choke_points_data.csv")
+    process_csv_insert_route_choke_point(route_choke_points_csv)
 
     # File path for the ports CSV file
     ports_csv = "ports_country.csv"
@@ -790,22 +790,19 @@ def main():
     # Load ports data
     ports_data = load_data_from_csv(ports_csv)
 
-    ports_data = ports_data.drop_duplicates(subset=["port_name"])
+    unique_ports_data = ports_data.drop_duplicates(subset=["port_name"])
 
     # Insert data into ports table
-    insert_ports(ports_data)
+    insert_ports(unique_ports_data)
 
-    industries_data = load_data_from_csv(ports_csv)
-    industries_data = industries_data.drop_duplicates(subset=["country", "top1_industry", "top2_industry", "top3_industry"])
+
+    industries_data = ports_data.drop_duplicates(subset=["country", "top1_industry", "top2_industry", "top3_industry"])
     insert_countries_port_industries(industries_data)
 
-    data_frame = load_data_from_csv(ports_csv)
-    insert_port_cargo_type(data_frame)
-
-    data = load_data_from_csv(new_csv)
+    insert_port_cargo_type(ports_data)
     
     # Pass the loaded data to the processing function
-    insert_ports_route_junction_table(data)
+    insert_ports_route_junction_table(route_choke_points_data)
 
 if __name__ == "__main__":
     main()
