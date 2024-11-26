@@ -1,3 +1,46 @@
+"""
+Script Name: Logistics Data Importer
+
+Description:
+This script automates the process of importing and processing logistics-related data into the database. 
+It handles the following types of data:
+1. **Choke Points and Cargo Types**:
+   - Extracts and processes choke points and associated cargo types from a CSV file.
+   - Populates the database with choke point data, cargo type data, and their relationships.
+
+2. **Routes and Choke Points**:
+   - Processes routes and their associated choke points from another CSV file.
+   - Populates the routes table and the junction table that links routes with choke points.
+
+3. **Ports and Related Data**:
+   - Processes port data, including their associations with countries and industries.
+   - Populates the ports table, country-port-industry relationships, and other related tables.
+
+Data Sources:
+- `cargo_type_choke_points.csv`: Contains choke points and associated cargo type data.
+- `route_choke_points_data.csv`: Contains route and choke point relationships.
+- `ports_country.csv`: Contains port data and associated country/industry information.
+
+Workflow:
+1. Load data from CSV files.
+2. Extract and deduplicate relevant data for each table or relationship.
+3. Insert data into the respective database tables using predefined functions.
+
+Functions Called:
+- `insert_choke_points`: Inserts choke point data into the `choke_points` table.
+- `insert_cargo_types`: Inserts cargo type data into the `cargo_types` table.
+- `insert_choke_points_cargo_types`: Inserts relationships between choke points and cargo types.
+- `insert_routes`: Inserts route data into the `routes` table.
+- `process_csv_insert_route_choke_point`: Processes and inserts route-choke point relationships.
+- `insert_ports`: Inserts port data into the `country_ports` table.
+- `insert_countries_port_industries`: Inserts country-port-industry relationships.
+- `insert_port_cargo_type`: Inserts port-cargo type relationships.
+- `insert_ports_route_junction_table`: Inserts relationships between ports and routes.
+
+Execution:
+Run this script directly to load and process data from the specified CSV files into the database.
+"""
+
 import pandas as pd
 from sqlalchemy import create_engine, Table, Column, String, Float, Numeric, MetaData, insert, select, exc
 from sqlalchemy.dialects.postgresql import UUID
