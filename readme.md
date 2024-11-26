@@ -1,27 +1,59 @@
-# Raw Material Data Importer
+# Master Data Importer
 
-This repository contains scripts for importing raw material data and associated applications and countries from CSV files into a Supabase database. It also includes documentation generated using Sphinx.
+This repository contains scripts for importing and processing raw material data, logistics data, and energy data. The files are organized following a structured folder hierarchy to ensure clarity and ease of navigation. For instance, scripts related to logistics are located under the logistics folder.
+
+Additionally, the repository includes comprehensive documentation generated using Sphinx, providing detailed guidance on the functionality and usage of the scripts.
 
 ## Scripts
 
-1. **raw_material_importer_script.py**
+The data import process is organized into three main folders, each corresponding to a specific type of data. Here's the structure:
 
-   - **Purpose**: Imports raw materials and associated applications and countries from CSV files into a Supabase database.
-   - **Functionality**:
-     - Loads data from specified CSV files.
-     - Cleans and filters the data.
-     - Inserts data into Supabase tables.
+1. energy:
+2. logistics:
+   Inside the logistics folder we have following scripts:
 
-2. **commodity_update.py**
+   1. **logistics_data_importer_script.py**
 
-   - **Purpose**: Updates commodity data in the Supabase database based on specified criteria.
-   - **Functionality**:
-     - Connects to the Supabase database.
-     - Retrieves and updates commodity records as necessary.
+      - The logistics_data_importer.py script is designed to handle the ingestion and processing of logistics-related data. It processes various CSV files, extracts relevant data, and populates multiple database tables, including junction tables. Below is a breakdown of the script's functionality:
 
-3. **other_script.py**
-   - **Purpose**: Placeholder for additional functionality related to data processing.
-   - **Functionality**: Further data manipulations and interactions with the Supabase database.
+3. raw_materials:
+   Inside the raw_materials folder we have following scripts:
+
+   1. **raw_material_importer_script.py**
+
+      - **Purpose**: Imports raw materials and associated applications and countries from CSV files into a Supabase database.
+      - **Functionality**:
+      - Loads data from specified CSV files.
+      - Cleans and filters the data.
+      - Inserts data into Supabase tables.
+
+   2. **commodity_update.py**
+
+      - **Purpose**: Updates commodity data in the Supabase database based on specified criteria.
+      - **Functionality**:
+      - Connects to the Supabase database.
+      - Retrieves and updates commodity records as necessary.
+
+   3. **convert_prices_to_usd_price**
+
+      - **Purpose**: Updates raw material price data in the Supabase database by calculating and storing their equivalent prices in USD.
+      - **Functionality**:
+      - Connects to the Supabase database using credentials from environment variables.
+      - Defines SQLAlchemy models for ApiSource, RawMaterial, and RawMaterialPrice tables.
+      - Retrieves the raw material price records for a specific API source ("Metals API").
+      - Computes the price in USD for each raw material price record based on its original value.
+      - Updates the database with the calculated price_in_usd values.
+
+   4. **commodity_price_fetch**
+      - **Purpose**: Fetches and stores raw material price data from various API sources (e.g., Metals API, Commodities API, Commoditic API) into a Supabase database.
+      - **Functionality**:
+      - Connects to the Supabase database using credentials loaded from environment variables.
+      - Defines functions to fetch raw materials associated with a specified API source.
+      - Fetches historical price data for raw materials from different APIs based on a given date range.
+      - Stores the retrieved price data in the Supabase raw_material_prices table.
+      - Processes the data in chunks for APIs that support it, handling each API source differently (e.g., Commoditic API fetches data in one request, others in 30-day chunks).
+      - Supports multiple API sources and formats, including URL encoding and request construction for each API type.
+      - The main function orchestrates fetching and storing data for all raw materials linked to the specified API source within a defined date range.
 
 ## Requirements
 
@@ -50,8 +82,14 @@ SUPABASE_URL=<your_supabase_url>
 SUPABASE_KEY=<your_supabase_key>
 COMMODITIES_API_KEY=<commodities_api_key>
 TIME_SERIES_COMMODITIES_API_END_POINT=<time_series_commodities_api_end_point>
+TIME_SERIES_METALS_API_END_POINT==<time_series_metals_api_end_point>
 SUPABASE_DATABASE_URL=<your_supabase_url_with_psycopg2>
 RUN_IMPORT_SCRIPT=true # if you want to run the importer
+COMMODITIC_API_KEY=<your_commoditic_api_key>
+COMMODITIC_API_END_POINT=<your_commoditic_endpoint>
+METALS_API_KEY=<your_metals_api_key>
+STRAPI_COUNTIRES_API_URL=<strapi_countries_api_url>
+STRAPI_API_KEY= <strapi_api_key>
 
 How to Run the Scripts
 To run the scripts, use the following command:
