@@ -24,6 +24,8 @@ choke_points = Table(
     "choke_points", metadata,
     Column("uuid", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
     Column("chokepoint_name", String, unique=True),
+    Column("latitude", Numeric),
+    Column("longitude", Numeric),
 )
 
 cargo_types = Table(
@@ -124,6 +126,16 @@ port_cargo_type = Table(
     Column("updated_at", String),
 )
 
+routes_ports = Table(
+    "routes_ports",
+    metadata,
+    Column("uuid", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
+    Column("route_id", UUID(as_uuid=True)),  
+    Column("port_id", UUID(as_uuid=True)),  
+    Column("created_at", String),
+    Column("updated_at", String),
+)
+
 # Load CSV data
 def load_data_from_csv(file_path):
     """
@@ -193,13 +205,21 @@ def insert_choke_points(data):
     """
     # Strip spaces around chokepoint_name to avoid duplicate entries with trailing spaces
     data["primary_chokepoints"] = data["primary_chokepoints"].str.strip()
+    data["latitude"] = pd.to_numeric(data["latitude"], errors="coerce")
+    data["longitude"] = pd.to_numeric(data["longitude"], errors="coerce")
+
+    # Drop rows where latitude or longitude are NaN after conversion
+    data = data.dropna(subset=["latitude", "longitude"])
 
     # Map CSV columns to database table columns
     data = data.rename(columns={
         "primary_chokepoints": "chokepoint_name",
+        "latitude": "latitude",
+        "longitude": "longitude"
     })
-    
-    insert_data_into_table(choke_points, data, ["chokepoint_name"])
+
+    # Call insert function to handle data insertion
+    insert_data_into_table(choke_points, data, ["chokepoint_name", "latitude", "longitude"])
 
 # Insert data into cargo_types table
 def insert_cargo_types(data):
@@ -619,7 +639,7 @@ def process_single_route_row(row):
     insert_route_chokepoints(route_name, row)
 
 # Main processing logic
-def process_csv(csv_file):
+def process_csv_insert_route_choke_point(csv_file):
     """
     Process a CSV file to extract and process route data.
 
@@ -646,6 +666,73 @@ def process_csv(csv_file):
     for _, row in data.iterrows():
         process_single_route_row(row)
 
+def insert_ports_route_junction_table(data_frame):
+    """
+    Insert data into the `routes_ports` junction table, mapping routes to their associated ports.
+    
+    This function ensures that routes and ports exist in their respective tables 
+    and creates entries in the `routes_ports` table to link routes with their associated ports.
+    
+    :param data_frame: pandas.DataFrame
+        DataFrame containing the data to be processed. The DataFrame must include:
+        - `route_name`: The route name to be linked.
+        - `ports`: A comma-separated list of port names associated with the route.
+    
+    :raises Exception:
+        Handles database-related exceptions and prints error messages for each failure case.
+    
+    :return: None
+    """
+    with engine.connect() as connection:
+        with connection.begin():  # Start transaction
+            for _, row in data_frame.iterrows():
+                route_name = row["route_name"]
+                ports_list = row["ports"].split(",")  # Split ports by comma
+
+                # Fetch route UUID from routes table
+                route_result = connection.execute(
+                    select(routes.c.uuid).where(routes.c.route_name == route_name)
+                ).fetchone()
+
+                if not route_result:
+                    print(f"Route '{route_name}' not found in 'routes' table. Skipping row.")
+                    continue
+
+                route_uuid = str(route_result[0])  # Convert UUID to string
+
+                for port_name in ports_list:
+                    port_name = port_name.strip()  # Remove any leading/trailing spaces
+
+                    # Fetch port UUID from country_ports table (now referred as 'ports')
+                    port_result = connection.execute(
+                        select(ports.c.uuid).where(ports.c.port_name == port_name)
+                    ).fetchone()
+
+                    if not port_result:
+                        print(f"Port '{port_name}' not found in 'country_ports' table. Skipping port.")
+                        continue
+
+                    port_uuid = str(port_result[0])  # Convert UUID to string
+
+                    # Prepare data for insertion into the junction table
+                    new_entry = {
+                       
+                        "route_id": route_uuid,
+                        "port_id": port_uuid,
+                        
+                    }
+
+                    # Insert into 'routes_ports' table
+                    try:
+                        connection.execute(
+                            insert(routes_ports).values(new_entry)
+                        )
+                        print(f"Successfully added route-port mapping for Route '{route_name}' -> Port '{port_name}'.")
+                    except exc.IntegrityError:
+                        print(f"Failed to insert route-port mapping for Route '{route_name}' and Port '{port_name}'. Duplicate entry.")
+                    except Exception as e:
+                        print(f"Error inserting route-port mapping: {e}")
+
 # Main function
 def main():
     # File path for the single CSV file
@@ -656,7 +743,9 @@ def main():
 
     # Extract unique choke_points data
     choke_points_data = data[
-        ["primary_chokepoints"]
+        ["primary_chokepoints",
+        "latitude", 
+        "longitude"]
     ].drop_duplicates()
 
     # Extract unique cargo_types data
@@ -693,7 +782,7 @@ def main():
     insert_routes(routes_data)
 
     # Insert into routes_choke_point junction table
-    process_csv("route_choke_points_data.csv")
+    process_csv_insert_route_choke_point("route_choke_points_data.csv")
 
     # File path for the ports CSV file
     ports_csv = "ports_country.csv"
@@ -712,6 +801,11 @@ def main():
 
     data_frame = load_data_from_csv(ports_csv)
     insert_port_cargo_type(data_frame)
+
+    data = load_data_from_csv(new_csv)
+    
+    # Pass the loaded data to the processing function
+    insert_ports_route_junction_table(data)
 
 if __name__ == "__main__":
     main()
