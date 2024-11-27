@@ -1,7 +1,7 @@
-raw-materials-data-sync documentation
+master-data-sync documentation
 =====================================
 
-This documentation provides an overview of the **Raw Materials Data Sync** project. 
+This documentation provides an overview of the **Master Data Sync** project. 
 It includes information on the modules, classes, and functions used to synchronize raw materials data from an external API into a database.
 
 .. toctree::

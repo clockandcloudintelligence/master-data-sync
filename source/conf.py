@@ -2,10 +2,13 @@ import os
 import sys
 
 # Add the parent directory to sys.path so we can import our modules
-sys.path.insert(0, os.path.abspath('../'))
+sys.path.insert(0, os.path.abspath('../raw_materials'))
+sys.path.insert(0, os.path.abspath('../logistics'))
 
+# Confirm paths for debugging
 print("Current sys.path:")
-print(os.path.abspath('../'))
+for path in sys.path:
+    print(path)
 
 # Configuration file for the Sphinx documentation builder.
 #
