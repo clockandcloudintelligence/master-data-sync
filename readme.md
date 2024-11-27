@@ -111,7 +111,8 @@ Follow the prompts to set up the documentation structure.
 
 import os
 import sys
-sys.path.insert(0, os.path.abspath('.'))
+sys.path.insert(0, os.path.abspath('../raw_materials'))
+sys.path.insert(0, os.path.abspath('../logistics'))
 
 4. Create reStructuredText files for your scripts (e.g., raw_material_importer_script.rst, commodity_update.rst, etc.) in the source directory of your Sphinx setup.
 
