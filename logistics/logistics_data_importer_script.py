@@ -121,13 +121,7 @@ ports = Table(
     Column("longitude", Numeric),
     Column("country_id", UUID(as_uuid=True)),
     Column("import_percentage_maritime_trade", String),
-    Column("export_percentage_maritime_trade", String),
-    Column("percentage_total_ships_type1", String),
-    Column("percentage_total_ships_type2", String),
-    Column("annual_vessel_composition_type3", String),
-    Column("percentage_total_ships_type3", String),
-    Column("annual_vessel_composition_type4", String),
-    Column("percentage_total_ships_type4", String),
+    Column("export_percentage_maritime_trade", String)
 )
 
 countries = Table(
@@ -165,6 +159,7 @@ port_cargo_type = Table(
     Column("uuid", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
     Column("port_id", UUID(as_uuid=True)),  
     Column("cargo_type_id", UUID(as_uuid=True)),  
+    Column("vessel_composition_pct", String),
     Column("created_at", String),
     Column("updated_at", String),
 )
@@ -479,10 +474,6 @@ def insert_ports(data):
                     'country_id': country_id,
                     'import_percentage_maritime_trade': row.get('import_percentage_countrys_maritime_trade', '').strip(),
                     'export_percentage_maritime_trade': row.get('export_percentage_countrys_maritime_trade', '').strip(),
-                    'percentage_total_ships_type1': row.get('%_of_total_ships1', '').strip(),
-                    'percentage_total_ships_type2': row.get('%_of_total_ships2', '').strip(),
-                    'percentage_total_ships_type3': row.get('%_of_total_ships3', '').strip(),
-                    'percentage_total_ships_type4': row.get('%_of_total_ships4', '').strip()
                 }
 
                 # Validate mandatory fields
@@ -582,31 +573,24 @@ def insert_countries_port_industries(data_frame):
 
 def insert_port_cargo_type(data_frame):
     """
-    Insert data into the `port_cargo_type` junction table, mapping ports to their cargo types.
-
-    This function ensures that cargo types exist in the `cargo_types` table and creates entries in the
-    `port_cargo_type` table to link ports with their associated cargo types.
+    Insert data into the `port_cargo_type` junction table, mapping ports to their cargo types along with vessel composition percentages.
 
     :param data_frame: pandas.DataFrame
         DataFrame containing the data to be processed. The DataFrame must include the following columns:
         - `port_name`: Name of the port to be linked.
         - `annual_vessel_composition1` to `annual_vessel_composition5`: Names of cargo types associated with the port.
-
-    :raises Exception:
-        Handles database-related exceptions and prints error messages for each failure case.
-
-    :return: None
+        - `%_of_total_ships1` to `%_of_total_ships5`: Corresponding vessel composition percentages.
     """
     with engine.connect() as connection:
-        with connection.begin():  
+        with connection.begin():
             for _, row in data_frame.iterrows():
-                port_name = row["port_name"].strip() 
+                port_name = row["port_name"].strip()
                 cargo_types_list = [
-                    row["annual_vessel_composition1"].strip(),
-                    row["annual_vessel_composition2"].strip(),
-                    row["annual_vessel_composition3"].strip(),
-                    row["annual_vessel_composition4"].strip(),
-                    row["annual_vessel_composition5"].strip(),
+                    (row["annual_vessel_composition1"].strip(), row["%_of_total_ships1"]),
+                    (row["annual_vessel_composition2"].strip(), row["%_of_total_ships2"]),
+                    (row["annual_vessel_composition3"].strip(), row["%_of_total_ships3"]),
+                    (row["annual_vessel_composition4"].strip(), row["%_of_total_ships4"]),
+                    (row["annual_vessel_composition5"].strip(), row["%_of_total_ships5"]),
                 ]
 
                 # Fetch port UUID from country_ports
@@ -620,8 +604,8 @@ def insert_port_cargo_type(data_frame):
 
                 port_uuid = str(port_result[0])
 
-                for cargo_type_name in cargo_types_list:
-                    if not cargo_type_name or cargo_type_name == "-":  
+                for cargo_type_name, vessel_pct in cargo_types_list:
+                    if not cargo_type_name or cargo_type_name == "-":
                         continue
 
                     # Fetch cargo type UUID from cargo_types
@@ -654,9 +638,10 @@ def insert_port_cargo_type(data_frame):
                             insert(port_cargo_type).values(
                                 port_id=port_uuid,
                                 cargo_type_id=cargo_type_uuid,
+                                vessel_composition_pct=str(vessel_pct).strip(),
                             )
                         )
-                        print(f"Linked port '{port_name}' with cargo type '{cargo_type_name}'.")
+                        print(f"Linked port '{port_name}' with cargo type '{cargo_type_name}' and vessel composition percentage '{vessel_pct}'.")
                     except exc.IntegrityError as e:
                         print(f"Duplicate entry for port '{port_name}' and cargo type '{cargo_type_name}': {e}")
                     except Exception as e:
